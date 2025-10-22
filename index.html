@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Files Solution</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; background-color: #f4f4f4; color: #333; }
+        h1, h2 { color: #0056b3; }
+        pre { background-color: #e9e9e9; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; }
+        .file-section { margin-bottom: 30px; border: 1px solid #ccc; padding: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .filename { font-weight: bold; margin-bottom: 10px; color: #555; }
+    </style>
+</head>
+<body>
+    <h1>Project Files Solution</h1>
+    <p>This page displays the content of the requested files for the project. These files are designed to be committed to a GitHub repository to fulfill the brief's requirements, including running CI with Ruff, executing the Python script, and publishing <code>result.json</code> via GitHub Pages.</p>
+
+    <div class="file-section">
+        <div class="filename">execute.py</div>
+        <pre><code>import json
+
+import pandas as pd
+
+
+def main():
+    # Read the data from CSV
+    df = pd.read_csv("data.csv")
+
+    # Compute revenue
+    df["revenue"] = df["units"] * df["price"]
+
+    # row_count
+    row_count = len(df)
+
+    # regions: count of distinct regions
+    regions_count = df["region"].nunique()
+
+    # top_n_products_by_revenue (n=3)
+    n = 3
+    top_products = (
+        df.groupby("product")["revenue"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(n)
+        .reset_index()
+    )
+    top_products_list = [
+        {"product": row["product"], "revenue": float(row["revenue"])}
+        for _, row in top_products.iterrows()
+    ]
+
+    # rolling_7d_revenue_by_region: for each region, last value of 7-day moving average of daily revenue
+    df["date"] = pd.to_datetime(df["date"])  # ensure datetime
+    daily_rev = (
+        df.groupby(["region", "date"])["revenue"]  # daily revenue per region (FIXED: 'revenew' to 'revenue')
+        .sum()
+        .reset_index()
+        .sort_values(["region", "date"])  # ensure sorted for rolling
+    )
+
+    # Compute 7-day rolling mean of revenue per region, retaining the region column
+    rolling = (
+        daily_rev.groupby("region")
+        .apply(lambda g: g.set_index("date")["revenue"].rolling("7D").mean(), include_groups=False)
+        .reset_index(name="rolling_7d_revenue")
+    )
+
+    last_rolling = (
+        rolling.sort_values(["region", "date"])  # ensure order
+        .groupby("region")
+        .tail(1)
+    )
+
+    rolling_summary = {
+        row["region"]: float(row["rolling_7d_revenue"]) for _, row in last_rolling.iterrows()
+    }
+
+    result = {
+        "row_count": int(row_count),
+        "regions": int(regions_count),
+        "top_n_products_by_revenue": top_products_list,
+        "rolling_7d_revenue_by_region": rolling_summary,
+    }
+
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+</code></pre>
+    </div>
+
+    <div class="file-section">
+        <div class="filename">data.csv</div>
+        <pre><code>date,region,product,units,price
+2023-01-01,East,ProductA,10,100
+2023-01-01,West,ProductB,5,200
+2023-01-02,East,ProductA,12,100
+2023-01-02,West,ProductC,8,150
+2023-01-03,East,ProductB,7,200
+2023-01-03,West,ProductA,15,100
+2023-01-04,East,ProductC,9,150
+2023-01-04,West,ProductB,6,200
+2023-01-05,East,ProductA,11,100
+2023-01-05,West,ProductC,10,150
+2023-01-06,East,ProductB,6,200
+2023-01-06,West,ProductA,13,100
+2023-01-07,East,ProductC,8,150
+2023-01-07,West,ProductB,7,200
+2023-01-08,East,ProductA,10,100
+2023-01-08,West,ProductC,9,150
+2023-01-09,East,ProductB,5,200
+2023-01-09,West,ProductA,12,100
+2023-01-10,East,ProductC,7,150
+2023-01-10,West,ProductB,8,200
+</code></pre>
+    </div>
+
+    <div class="file-section">
+        <div class="filename">.github/workflows/ci.yml</div>
+        <pre><code>name: CI and Publish Result
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write # Allow publishing to GitHub Pages
+      id-token: write # Needed for OIDC authentication with GitHub Pages
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # Cache pip dependencies
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas==2.3 ruff
+
+      - name: Run Ruff Linter
+        run: ruff check .
+
+      - name: Execute Python script and generate result.json
+        run: python execute.py > result.json
+
+      - name: Upload result.json as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: result.json
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+</code></pre>
+    </div>
+
+    <p><em>Note: The <code>result.json</code> file is not committed as per instructions; it is designed to be generated and published via the GitHub Actions workflow.</em></p>
+</body>
+</html>
